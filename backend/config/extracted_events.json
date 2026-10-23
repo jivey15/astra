@@ -1,0 +1,47 @@
+[
+  {
+    "event_name": "The Den Bear Night",
+    "venue_name": "The Saloon MN",
+    "event_date": "2026-10-17",
+    "doors_time": "10:00 PM",
+    "show_time": null,
+    "cover_charge": null,
+    "age_requirement": "21+",
+    "performers": [
+      "LEADFOOT"
+    ],
+    "description": "Bear night at The Saloon featuring sounds by Leadfoot starting at 10pm.",
+    "source_post_url": "https://www.instagram.com/p/Dee6HYbKvN5/",
+    "flyer_image_url": "https://instagram.fmad25-1.fna.fbcdn.net/v/t51.82787-15/847979014_18641328268000472_8505617603746738271_n.jpg?stp=dst-jpg_e15_tt6&_nc_ht=instagram.fmad25-1.fna.fbcdn.net&_nc_cat=108&_nc_oc=Q6cZ2gE4fZv8NjiJpJ5Tp6ypHDRZ32kAfn0ZGdV_z7f8ZBBl8AQAahz6QX4uNqP8tc4s11A&_nc_ohc=9-IGwt7ycOMQ7kNvwETIaeu&_nc_gid=RBsjjItbOjRbUqhY2TE61g&edm=AOQ1c0wBAAAA&ccb=7-5&ig_cache_key=NDAwNzg5NjMxMjM2NTkwNDc2MQ%3D%3D.3-ccb7-5&oh=00_AQNJCkQgJTH_yWYoTply5Z0Ws8ubkYF8jRVbGeq0kaj4Zw&oe=6ADDF455&_nc_sid=8b3546"
+  },
+  {
+    "event_name": "Halloween",
+    "venue_name": "The Saloon MN",
+    "event_date": "2026-10-31",
+    "doors_time": "10:00 PM",
+    "show_time": "10:00 PM",
+    "cover_charge": null,
+    "age_requirement": null,
+    "performers": [
+      "Leadfoot"
+    ],
+    "description": "Halloween celebration at The Saloon featuring music by Leadfoot and a costume contest with a $1,000 prize (sign up at 10:30 PM, contest at 11:00 PM).",
+    "source_post_url": "https://www.instagram.com/p/DeH2HiSKAik/",
+    "flyer_image_url": "https://instagram.fmad25-1.fna.fbcdn.net/v/t51.82787-15/837459891_18638128042000472_3852801766557079814_n.jpg?stp=dst-jpg_e35_p1080x1080_sh2.08_tt6&_nc_ht=instagram.fmad25-1.fna.fbcdn.net&_nc_cat=108&_nc_oc=Q6cZ2gE4fZv8NjiJpJ5Tp6ypHDRZ32kAfn0ZGdV_z7f8ZBBl8AQAahz6QX4uNqP8tc4s11A&_nc_ohc=qyihzsTcA3wQ7kNvwGrCwE9&_nc_gid=RBsjjItbOjRbUqhY2TE61g&edm=AOQ1c0wBAAAA&ccb=7-5&ig_cache_key=NDAwMTQwNDgwNjMwMTc0NzM2NA%3D%3D.3-ccb7-5&oh=00_AQPwNXI-6gWUdcC1WkEkQiUP9lGTuCI4JgRWEQ4lJ549Tg&oe=6ADE0085&_nc_sid=8b3546"
+  },
+  {
+    "event_name": "Football: Vikings Away - Saloon Will Play",
+    "venue_name": "The Saloon MN",
+    "event_date": "2026-09-20",
+    "doors_time": null,
+    "show_time": "12:00 PM",
+    "cover_charge": null,
+    "age_requirement": null,
+    "performers": [
+      "Esera (Mr Aloha)"
+    ],
+    "description": "Watch the Vikings vs Bears away game hosted by NFL legend Esera Tuaolo (Mr Aloha) at The Saloon. Features raffle giveaways, Vikings swag, free touchdown shots, and fundraising for Hate Is Wrong.",
+    "source_post_url": "https://www.instagram.com/p/DdZIVh9q5c-/",
+    "flyer_image_url": "https://instagram.fmad25-1.fna.fbcdn.net/v/t51.82787-15/813790880_18631861777000472_1162875549888871207_n.jpg?stp=dst-jpg_e35_p1080x1080_sh2.08_tt6&_nc_ht=instagram.fmad25-1.fna.fbcdn.net&_nc_cat=108&_nc_oc=Q6cZ2gE4fZv8NjiJpJ5Tp6ypHDRZ32kAfn0ZGdV_z7f8ZBBl8AQAahz6QX4uNqP8tc4s11A&_nc_ohc=RAD-BG-MtGcQ7kNvwER33yd&_nc_gid=RBsjjItbOjRbUqhY2TE61g&edm=AOQ1c0wBAAAA&ccb=7-5&ig_cache_key=Mzk4ODI1NTYwODk2MjUyMDg5NA%3D%3D.3-ccb7-5&oh=00_AQPfmjC2rY3rWXOa777nTrcSQbs-5ZOBEGpYcxQneD4sAw&oe=6ADE0CFF&_nc_sid=8b3546"
+  }
+]
