@@ -2,8 +2,8 @@ name: Daily Event Sync
 
 on:
   schedule:
-    # Runs every day at 8:00 AM UTC
-    - cron: '0 8 * * *'
+    # Runs at 9:30 AM UTC (4:30 AM Central Time)
+    - cron: '30 9 * * *'
   workflow_dispatch:
 
 jobs:
@@ -22,7 +22,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests pydantic google-genai
+          pip install requests pydantic google-genai apify-client supabase
 
       - name: Run event sync pipeline
         env:
