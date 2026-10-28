@@ -11,6 +11,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
 
 import { BookmarkIcon, OrbitBroadcastIcon } from '@/components/astra-icons';
 
@@ -96,14 +97,51 @@ export function resolveIgHandle(item: EventItem): string {
   return slug || 'astra_signal';
 }
 
-/** Thickened glowing neon cyan L-brackets hugging all 4 outer corners of the card frame. */
+/**
+ * Thickened glowing neon cyan L-brackets hugging all 4 outer corners of the card frame.
+ * Explicit SVG paths are calculated for each corner without CSS/view transforms to prevent
+ * any transform-origin or miter glitches across web and native.
+ */
 function HudCornerBrackets() {
+  const L = 22;
+  const R = 8;
+  const stroke = 2.5;
+  const c = stroke / 2; // 1.25
+  const rArc = R - c; // 6.75
+
+  const tlPath = `M ${c},${L} L ${c},${R} A ${rArc} ${rArc} 0 0 1 ${R},${c} L ${L},${c}`;
+  const trPath = `M 0,${c} L ${L - R},${c} A ${rArc} ${rArc} 0 0 1 ${L - c},${R} L ${L - c},${L}`;
+  const blPath = `M ${c},0 L ${c},${L - R} A ${rArc} ${rArc} 0 0 0 ${R},${L - c} L ${L},${L - c}`;
+  const brPath = `M 0,${L - c} L ${L - R},${L - c} A ${rArc} ${rArc} 0 0 0 ${L - c},${L - R} L ${L - c},0`;
+
+  const renderBracket = (key: string, path: string, position: any) => (
+    <View key={key} pointerEvents="none" style={[styles.bracket, position]}>
+      <Svg width={L} height={L} style={{ overflow: 'visible' }}>
+        <Path
+          d={path}
+          fill="none"
+          stroke="#00F0FF"
+          strokeWidth={6}
+          strokeLinecap="round"
+          opacity={0.3}
+        />
+        <Path
+          d={path}
+          fill="none"
+          stroke="#00F0FF"
+          strokeWidth={stroke}
+          strokeLinecap="round"
+        />
+      </Svg>
+    </View>
+  );
+
   return (
     <>
-      <View pointerEvents="none" style={[styles.bracket, styles.bracketTL]} />
-      <View pointerEvents="none" style={[styles.bracket, styles.bracketTR]} />
-      <View pointerEvents="none" style={[styles.bracket, styles.bracketBL]} />
-      <View pointerEvents="none" style={[styles.bracket, styles.bracketBR]} />
+      {renderBracket('tl', tlPath, { top: -1, left: -1 })}
+      {renderBracket('tr', trPath, { top: -1, right: -1 })}
+      {renderBracket('bl', blPath, { bottom: -1, left: -1 })}
+      {renderBracket('br', brPath, { bottom: -1, right: -1 })}
     </>
   );
 }
@@ -762,7 +800,7 @@ const styles = StyleSheet.create({
   card: {
     position: 'relative',
     backgroundColor: 'rgba(8, 18, 38, 0.88)',
-    borderRadius: 18,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: 'rgba(0, 240, 255, 0.32)',
     shadowColor: '#00F0FF',
@@ -772,7 +810,7 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   cardCompact: {
-    borderRadius: 16,
+    borderRadius: 8,
   },
   cardFeaturedCarousel: {
     borderColor: 'rgba(0, 240, 255, 0.5)',
@@ -783,52 +821,19 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.45,
   },
   cardInner: {
-    borderRadius: 17,
+    borderRadius: 7,
     overflow: 'hidden',
     backgroundColor: 'rgba(8, 18, 38, 0.88)',
   },
   cardInnerCompact: {
-    borderRadius: 15,
+    borderRadius: 7,
     overflow: 'hidden',
   },
   bracket: {
     position: 'absolute',
-    width: 18,
-    height: 18,
-    borderColor: '#00F0FF',
+    width: 22,
+    height: 22,
     zIndex: 6,
-    shadowColor: '#00F0FF',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.95,
-    shadowRadius: 6,
-  },
-  bracketTL: {
-    top: -1.5,
-    left: -1.5,
-    borderTopWidth: 2.5,
-    borderLeftWidth: 2.5,
-    borderTopLeftRadius: 8,
-  },
-  bracketTR: {
-    top: -1.5,
-    right: -1.5,
-    borderTopWidth: 2.5,
-    borderRightWidth: 2.5,
-    borderTopRightRadius: 8,
-  },
-  bracketBL: {
-    bottom: -1.5,
-    left: -1.5,
-    borderBottomWidth: 2.5,
-    borderLeftWidth: 2.5,
-    borderBottomLeftRadius: 8,
-  },
-  bracketBR: {
-    bottom: -1.5,
-    right: -1.5,
-    borderBottomWidth: 2.5,
-    borderRightWidth: 2.5,
-    borderBottomRightRadius: 8,
   },
   hudHeaderBar: {
     height: 36,
