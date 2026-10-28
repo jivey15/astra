@@ -131,6 +131,7 @@ function GlassButton({
   borderColor,
   glowIntensity,
   compact,
+  trailing,
   children,
 }: {
   onPress: () => void;
@@ -139,26 +140,35 @@ function GlassButton({
   borderColor: string;
   glowIntensity: number;
   compact?: boolean;
+  /** Optional sibling (e.g. divider + chevron) rendered beside, never inside, the main Pressable. */
+  trailing?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityState={selected === undefined ? undefined : { selected }}
-      accessibilityLabel={accessibilityLabel}
-      style={({ pressed }) => [
+    <View
+      style={[
         styles.glassButton,
         compact && styles.glassButtonCompact,
         { borderColor, shadowOpacity: glowIntensity },
-        pressed && styles.buttonPressed,
       ]}>
       <LinearGradient
         colors={['rgba(14, 42, 82, 0.85)', 'rgba(6, 18, 38, 0.95)']}
-        style={[styles.glassButtonInner, compact && styles.glassButtonInnerCompact]}>
-        {children}
+        style={styles.glassButtonRow}>
+        <Pressable
+          onPress={onPress}
+          accessibilityRole="button"
+          accessibilityState={selected === undefined ? undefined : { selected }}
+          accessibilityLabel={accessibilityLabel}
+          style={({ pressed }) => [
+            styles.glassButtonInner,
+            compact && styles.glassButtonInnerCompact,
+            pressed && styles.buttonPressed,
+          ]}>
+          {children}
+        </Pressable>
+        {trailing}
       </LinearGradient>
-    </Pressable>
+    </View>
   );
 }
 
@@ -402,20 +412,23 @@ export function EventCard({
           ? 'Remind me ✓'
           : 'Remind me'}
       </Text>
-      {isReminded ? (
-        <>
-          <View style={styles.remindDivider} />
-          <Pressable
-            onPress={() => setFullFlyerVisible(true)}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={`Open details for ${titleDisplay}`}>
-            <Text style={styles.remindChevron}>›</Text>
-          </Pressable>
-        </>
-      ) : null}
     </>
   );
+
+  /** Divider + chevron shown when bookmarked; a sibling of (not nested in) the Remind Pressable. */
+  const remindTrailing = isReminded ? (
+    <View style={styles.remindTrailing}>
+      <View style={styles.remindDivider} />
+      <Pressable
+        onPress={() => setFullFlyerVisible(true)}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel={`Open details for ${titleDisplay}`}
+        style={styles.remindChevronButton}>
+        <Text style={styles.remindChevron}>›</Text>
+      </Pressable>
+    </View>
+  ) : null;
 
   return (
     <View style={[styles.cardRoot, cardWidth ? { width: cardWidth } : undefined]}>
@@ -578,7 +591,8 @@ export function EventCard({
                 accessibilityLabel={`Remind me about ${titleDisplay}`}
                 borderColor="#00F0FF"
                 glowIntensity={isReminded ? 0.9 : 0.35}
-                compact={isCompact}>
+                compact={isCompact}
+                trailing={remindTrailing}>
                 {renderRemindContent(isCompact)}
               </GlassButton>
             </Animated.View>
@@ -717,7 +731,8 @@ export function EventCard({
                   selected={isReminded}
                   accessibilityLabel={`Remind me about ${titleDisplay}`}
                   borderColor="#00F0FF"
-                  glowIntensity={isReminded ? 0.9 : 0.35}>
+                  glowIntensity={isReminded ? 0.9 : 0.35}
+                  trailing={remindTrailing}>
                   {renderRemindContent(false)}
                 </GlassButton>
               </View>
@@ -914,7 +929,12 @@ const styles = StyleSheet.create({
   glassButtonCompact: {
     borderRadius: 8,
   },
+  glassButtonRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
   glassButtonInner: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -927,11 +947,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     gap: 4,
   },
+  remindTrailing: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    paddingVertical: 6,
+  },
   remindDivider: {
     width: 1,
-    alignSelf: 'stretch',
-    marginVertical: 1,
     backgroundColor: 'rgba(0, 240, 255, 0.45)',
+  },
+  remindChevronButton: {
+    paddingHorizontal: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   remindChevron: {
     color: '#00F0FF',
