@@ -75,7 +75,13 @@ class FlyerExtractionSchema(BaseModel):
     )
     description: Optional[str] = Field(
         default=None,
-        description="1-2 sentence engaging summary of the event combining flyer details and post caption context."
+        description=(
+            "Short, action-oriented event description (2-3 punchy, scannable sentences max). "
+            "No generic promotional fluff (never use 'Join us for...', 'Come cheer on...', 'Including one...'). "
+            "Focus strictly on core draws: cover charges, drink specials, themes, and DJs. "
+            "Use a cool, nightlife-native tone like a direct text message to a friend "
+            "(e.g., 'Vikes vs. Colts. $25 AYCE breakfast & a drink. Free Grape Ape shots every time Minnesota scores. Pull up.')."
+        ),
     )
     confidence_score: float = Field(
         default=0.95,
@@ -129,6 +135,14 @@ def upload_flyer_to_supabase(ig_image_url: str, venue_name: str) -> Optional[str
     return ig_image_url
 
 
+GEMINI_SYSTEM_INSTRUCTION = """You are an expert nightlife event extractor for Astra.
+When generating the `description` field from the extracted flyer and caption data, strictly enforce short, action-oriented descriptions instead of long paragraphs:
+- Condense the details into 2-3 punchy, scannable sentences maximum.
+- Remove generic promotional fluff (e.g., "Join us for...", "Come cheer on...", "Including one...").
+- Focus strictly on the core draws: cover charges, drink specials, themes, and DJs.
+- Adopt a cool, nightlife-native tone that sounds like a direct text message to a friend (e.g., "Vikes vs. Colts. $25 AYCE breakfast & a drink. Free Grape Ape shots every time Minnesota scores. Pull up.")."""
+
+
 # Helper for Gemini structured extraction with 429 & 503 retry protection
 def analyze_flyer_with_retry(image_bytes: bytes, prompt: str, mime_type: str = "image/jpeg", max_retries: int = 4):
     for attempt in range(1, max_retries + 1):
@@ -140,6 +154,7 @@ def analyze_flyer_with_retry(image_bytes: bytes, prompt: str, mime_type: str = "
                     prompt,
                 ],
                 config=types.GenerateContentConfig(
+                    system_instruction=GEMINI_SYSTEM_INSTRUCTION,
                     response_mime_type="application/json",
                     response_schema=FlyerExtractionSchema,
                     temperature=0.1,
@@ -301,8 +316,33 @@ def extract_posts_from_profile(profile: dict) -> list:
     return []
 
 
+DEACTIVATED_HANDLES = {"the19bar", "flipphonempls", "flipphoneevents"}
+
+
+def deactivate_retired_sources() -> None:
+    """Ensures retired/inactive handles (the19bar, flipphonempls, flipphoneevents) are set to is_active=false in public.sources."""
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+    }
+    for handle in DEACTIVATED_HANDLES:
+        try:
+            requests.patch(
+                f"{SUPABASE_URL}/rest/v1/sources",
+                params={"ig_handle": f"eq.{handle}"},
+                headers=headers,
+                json={"is_active": False},
+                timeout=10,
+            )
+        except Exception as e:
+            print(f"   ⚠️ Warning deactivating source '{handle}': {e}")
+
+
 def fetch_active_usernames() -> List[str]:
     print("1. Fetching active Minneapolis sources from Supabase...")
+    deactivate_retired_sources()
     try:
         sources_res = requests.get(
             f"{SUPABASE_URL}/rest/v1/sources?is_active=eq.true",
@@ -315,12 +355,20 @@ def fetch_active_usernames() -> List[str]:
         sources = []
 
     usernames = [s["ig_handle"].strip().lstrip("@") for s in sources if s.get("ig_handle")]
-    # Fix common handle typo in DB ('saloonmn' -> 'thesaloonmn') and deduplicate
-    usernames = list(dict.fromkeys("thesaloonmn" if u == "saloonmn" else u for u in usernames))
+    # Fix known handle typos/outdated handles in DB and deduplicate
+    handle_fixes = {
+        "saloonmn": "thesaloonmn",
+        "lushmpls": "lush.mpls",
+    }
+    usernames = [
+        u
+        for u in dict.fromkeys(handle_fixes.get(u, u) for u in usernames)
+        if u.lower() not in DEACTIVATED_HANDLES
+    ]
 
     if not usernames:
         print("   ⚠️ No active sources found in database. Using core MSP fallback list.")
-        usernames = ["thesaloonmn", "eagleboltbar", "lushmpls", "blackhartstp"]
+        usernames = ["thesaloonmn", "eaglempls", "lush.mpls", "blackhartstp"]
 
     print(f"   Found {len(usernames)} active venues to scan: {usernames}")
     return usernames
@@ -702,8 +750,18 @@ def main():
         posts = extract_posts_from_profile(profile)
         if not posts:
             err_msg = profile.get("error") or profile.get("requestErrorMessages")
-            is_private = profile.get("private") or profile.get("is_private")
-            print(f"-> @{username}: 0 posts found (Private: {is_private} | Error: {err_msg})")
+            err_desc = profile.get("errorDescription")
+            is_private = profile.get("private") if "private" in profile else profile.get("is_private")
+            posts_count = profile.get("postsCount")
+            if err_msg:
+                print(f"-> @{username}: 0 posts found (Error: {err_msg} | {err_desc})")
+            elif is_private is False and posts_count is None and "latestPosts" in profile:
+                print(
+                    f"-> @{username}: 0 posts found (Private: False | Error: None | "
+                    "Instagram 21+ age-gated business profile returned latestPosts: [] to unauthenticated scraper)"
+                )
+            else:
+                print(f"-> @{username}: 0 posts found (Private: {is_private} | Error: {err_msg})")
             continue
 
         print(f"-> @{username}: {len(posts)} posts found")
@@ -776,6 +834,11 @@ Instructions:
 1. Determine if this post is promoting a specific event (`is_event`).
 2. Extract all relevant event details from BOTH the flyer image and the caption.
 3. Resolve relative dates (e.g., "This Friday", "Tonight") using the Post Timestamp ({timestamp}) into YYYY-MM-DD format.
+4. For the `description` field, strictly write a short, action-oriented summary instead of a long paragraph:
+   - Condense the details into 2-3 punchy, scannable sentences maximum.
+   - Remove generic promotional fluff (e.g., "Join us for...", "Come cheer on...", "Including one...").
+   - Focus strictly on the core draws: cover charges, drink specials, themes, and DJs.
+   - Adopt a cool, nightlife-native tone that sounds like a direct text message to a friend (e.g., "Vikes vs. Colts. $25 AYCE breakfast & a drink. Free Grape Ape shots every time Minnesota scores. Pull up.").
 """
 
             try:

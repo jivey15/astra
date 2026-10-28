@@ -1,6 +1,5 @@
 /**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://unistyl.es/), etc.
+ * Electric Cyan & Deep Cosmic Blue Theme for Astra (project-loring)
  */
 
 import '@/global.css';
@@ -16,25 +15,36 @@ export const Colors = {
     textSecondary: '#60646C',
   },
   dark: {
-    text: '#ffffff',
-    background: '#000000',
-    backgroundElement: '#212225',
-    backgroundSelected: '#2E3135',
-    textSecondary: '#B0B4BA',
+    text: '#FFFFFF',
+    background: '#050B18',
+    backgroundElement: '#0A1528',
+    backgroundSelected: '#0E1E38',
+    textSecondary: '#93C5FD',
   },
+} as const;
+
+export const AstraColors = {
+  cosmicNavyDeep: '#050B18',
+  cosmicNavyMid: '#0A1528',
+  hudGlass: 'rgba(14, 30, 56, 0.78)',
+  hudGlassStrong: 'rgba(10, 21, 40, 0.92)',
+  borderDefault: '#1D4ED8',
+  borderActive: '#38BDF8',
+  electricCyan: '#0EA5E9',
+  glowingCyan: '#38BDF8',
+  iceBlue: '#7DD3FC',
+  mutedIceBlue: '#93C5FD',
+  starWhite: '#FFFFFF',
+  cyanGlowShadow: 'rgba(56, 189, 248, 0.35)',
 } as const;
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
 export const Fonts = Platform.select({
   ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
     sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
     serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
     rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
     mono: 'ui-monospace',
   },
   default: {

@@ -1,41 +1,67 @@
-This is an Expo/React Native mobile application. Prioritize mobile-first patterns, performance, and cross-platform compatibility.
+# Astra (`project-loring`) — Autonomous Engineering Guide (`AGENTS.md`)
 
-## Expo has changed — do not trust your training data
+You are the lead autonomous engineer for **Astra**, a Minneapolis nightlife telemetry platform combining an automated Instagram flyer scraping + AI extraction backend with an Expo / React Native mobile & web client.
 
-Expo ships breaking changes every SDK release. APIs you remember are likely renamed, moved, or removed. Before writing any code that touches an Expo, EAS, or React Native API:
+---
 
-1. Read the major version of the `expo` package in `package.json`.
-2. Fetch the matching versioned docs: `https://docs.expo.dev/versions/v<major>.0.0/`
-3. For anything else, fetch https://docs.expo.dev/llms.txt — an index of all Expo docs with corrections to common LLM misconceptions. Follow its links to the specific page you need; never answer from memory.
+## 1. System Architecture
 
-## Commands
+### Backend Scraper Pipeline (`backend/sync_events.py` & `.github/workflows/sync_events.yml`)
+- **Schedule & Trigger**: Runs daily at `08:00 UTC` via GitHub Actions (`.github/workflows/sync_events.yml`) or manually via `workflow_dispatch` / local CLI (`python backend/sync_events.py`).
+- **Source Discovery**: Queries `public.sources?is_active=eq.true` in Supabase for active Minneapolis venue Instagram handles. Inactive or retired handles (`the19bar`, `flipphonempls`, `flipphoneevents`) are kept `is_active = false` and excluded from scraping.
+- **Scraping & Pin Filtering**: Calls Apify (`apify~instagram-profile-scraper`) to fetch recent posts per venue. Evaluates `is_older_pinned_post()` **before** any database check or Gemini API call so pinned posts from the past never trigger premature watermark exits.
+- **Pre-Gemini Watermark Check**: Checks `post_exists_in_supabase(shortcode, post_url)` before downloading images or calling Gemini. When an unpinned post already exists in `public.events`, the scraper breaks out of that venue's loop immediately to conserve Gemini API credits.
+- **Gemini Structured Extraction**: Uses `google-genai` (`gemini-3.8-flash`) with `FlyerExtractionSchema` to extract normalized `YYYY-MM-DD` dates, 24-hour `HH:MM:SS` start times, performers, vibe tags, and punchy 2–3 sentence nightlife-native descriptions.
+- **Storage & Database Sync**: Uploads flyer images to the public Supabase Storage `flyers` bucket and inserts events one-by-one into `public.events`.
 
-Use `bunx` instead of `npx` if the project uses bun (`bun.lock` present).
+### Frontend Mobile & Web App (`app/src/app/index.tsx`, `app/app.js`, & `app/src/components/`)
+- **Entry Points**:
+  - `app/src/app/index.tsx`: Primary Expo Router screen driving the Live Feed, Map View (`app/src/components/map-view-placeholder.tsx`), and Saved Bookmarks tabs.
+  - `app/app.js`: Root JavaScript mirror of the feed logic. **Always keep `app/src/app/index.tsx` and `app/app.js` synchronized** when updating event fetching, partitioning, or feed layout.
+  - `app/src/components/event-card.tsx`: Reusable HUD `EventCard` supporting `'carousel'`, `'grid'`, and `'full'` variants plus the full-flyer detail modal.
+  - `app/src/components/constellation-header.tsx` & `app/src/constants/constellations.ts`: Interactive monthly zodiac constellation telemetry header.
 
-```bash
-npx expo install <package>  # ALWAYS use instead of npm/yarn/pnpm/bun add — resolves SDK-compatible versions
-npx expo start              # start the dev server
-npx expo lint               # lint
-npx tsc --noEmit            # typecheck
-npx expo-doctor             # diagnose dependency and config issues
-npx expo install --fix      # fix incompatible package versions
-```
+---
 
-Run lint and typecheck before declaring any task done.
+## 2. Supabase Schema & Query Rules
 
-## Navigation & Routing
+- **`public.sources`**:
+  - Columns: `id`, `name`, `ig_handle`, `city_code`, `is_active`.
+  - Only `is_active = true` rows are scraped. `the19bar` and `flipphonempls` / `flipphoneevents` must stay `is_active = false`.
+- **`public.events`**:
+  - Core columns: `id`, `city_code` (`'MSP'`), `venue_name`, `title`, `event_date` (`YYYY-MM-DD`), `start_time` (`HH:MM:SS`), `cover_info`, `age_limit`, `vibe_tags` (`text[]`), `talent_names` (`text[]`), `short_summary`, `flyer_image_url`, `post_url` (`UNIQUE`), `shortcode` (`UNIQUE`), `is_approved` (`boolean`, defaults to `false`), `status`, `confidence_score`.
+  - **Moderation Safety**: Backend inserts must omit `is_approved` from the payload so Postgres defaults new rows to `false` without resetting previously approved rows.
+  - **14-Day Rolling Window Query**: Frontend fetches must filter `.eq('is_approved', true).gte('event_date', fourteenDaysAgo)` (where `fourteenDaysAgo` is the ISO date string `YYYY-MM-DD` for 14 days prior) so events older than two weeks automatically drop off the app.
+  - **Data Partitioning**: Split fetched events in JavaScript into:
+    - `upcomingEvents` (`event_date >= today`, sorted ascending by date) rendered at the top of the feed (Featured Orbit carousel + Upcoming Signals 2-column grid).
+    - `pastEvents` (`event_date < today`, sorted descending by date) rendered at the bottom of the feed below a subtle `'Recent Signals'` divider.
 
-- Use **Expo Router** for all navigation. Routes live in `src/app/` — every file there is a screen, `_layout.tsx` files define navigators. Keep non-route code (components, hooks, utils) outside `src/app/`.
-- Import `Link`, `router`, and `useLocalSearchParams` from `expo-router`.
-- Docs: https://docs.expo.dev/router/introduction.md
+---
 
-## Building with EAS
+## 3. Dark Telemetry UI Theme ("Astra / Loring Orbit")
 
-Use EAS to build, sign, and submit the app in the cloud (`eas build`, `eas submit`) and to ship over-the-air updates (`eas update`) — no local Xcode or Android Studio required. Run EAS CLI as `bunx eas-cli <command>` in Bun projects, or `npx eas-cli@latest <command>` otherwise; substitute that for bare `eas` in docs examples.
-Docs: https://docs.expo.dev/eas/index.md
+- **Palette (`app/src/constants/theme.ts`)**:
+  - Deep Cosmic Navy backgrounds: `#050B18` (top) -> `#0A1528` (bottom)
+  - HUD Glass surfaces: `rgba(14, 30, 56, 0.78)` and `rgba(15, 23, 42, 0.95)`
+  - Borders & Accents: `#1D4ED8` (default border), `#38BDF8` (glowing cyan active border), `#0EA5E9` (electric cyan primary fill), `#7DD3FC` (ice blue), `#93C5FD` (muted ice blue), `#FFFFFF` (star white)
+- **Card & Modal Visual Standards (`app/src/components/event-card.tsx`)**:
+  - **Flyer Hero Containers**: 35px taller heights (`381px` full, `267px` carousel, `245px` grid) with edge-to-edge flyer imagery.
+  - **Bottom Linear Gradient Scrim**: Smooth two-stop linear gradient (`transparent` to `rgba(15, 23, 42, 0.95)`) behind overlay text with no harsh middle stop lines, blending seamlessly into the card body (`rgba(15, 23, 42, 0.95)`).
+  - **Detail Modal Flyer**: Full width (`width: '100%'`) adjusting dynamically to the flyer image's natural aspect ratio (`Image.getSize` / `onLoad`) so flyers never crop awkwardly.
+  - **Recent Signals Styling**: Past event cards (`pastEvents`) render below the `'Recent Signals'` divider with `opacity: 0.55` and a subtle grayscale filter (`filter: 'grayscale(40%)'`) so they visually recede behind active upcoming events.
 
-## Rules
+---
 
-- If `ios/` and `android/` directories do not exist, they are generated (Continuous Native Generation). Never create or edit them by hand — configure native behavior in `app.json` and config plugins.
-- Expo Go only includes its bundled native modules. After adding a library with native code, the app needs a development build: `npx expo run:ios|android` locally, or `eas build --profile development`.
-- Prefer recommended Expo modules over third-party libraries, and check your available skills before adding dependencies. Docs: https://docs.expo.dev/versions/latest/index.md
+## 4. Standing Autonomous Engineering Instructions
+
+1. **Always Verify Syntax & Types**:
+   - Python backend: Run `python -m py_compile backend/sync_events.py` after any backend edit.
+   - Expo / TypeScript frontend: Run `npx tsc --noEmit` (and `npx expo lint` where applicable) in `app/` before declaring any frontend task done.
+2. **Always Test Scripts Locally**:
+   - Execute verification one-liners or dry-run tests locally using `.env` credentials to confirm database state, API payloads, and date/partitioning logic.
+3. **Automatically Commit & Push Backend Fixes**:
+   - Whenever backend scripts, migrations, workflows, or repository configurations are created or updated, automatically stage, commit with a clear message, and push to `origin/main`.
+4. **Expo & React Native Best Practices**:
+   - Read the major `expo` version in `app/package.json` before touching Expo APIs and consult `https://docs.expo.dev/llms.txt` when needed.
+   - Use `npx expo install <package>` when adding Expo dependencies.
+   - Keep route files in `app/src/app/` and shared components in `app/src/components/`.
