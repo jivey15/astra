@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Image,
+  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -25,6 +26,8 @@ export interface EventItem {
   description?: string | null;
   flyer_image_url?: string | null;
   post_url?: string | null;
+  ticket_url?: string | null;
+  shortcode?: string | null;
   talent_names?: string[] | null;
   vibe_tags?: string[] | null;
   is_approved?: boolean | null;
@@ -200,7 +203,30 @@ export function EventCard({
   const compactDateTime = formatCompactDate(item.event_date, item.start_time);
   const venueDisplay = (item.venue_name || 'Minneapolis Venue').toUpperCase();
   const titleDisplay = item.title || 'Untitled Cosmic Signal';
-  const tags = item.vibe_tags && item.vibe_tags.length > 0 ? item.vibe_tags : ['Nightlife'];
+  const rawTags = item.vibe_tags && item.vibe_tags.length > 0 ? item.vibe_tags : ['DJs'];
+  const tags = Array.from(
+    new Set(
+      rawTags.map((t) => {
+        const lower = String(t).trim().toLowerCase();
+        if (lower === 'circuit/dj' || lower === 'dj' || lower === 'dance') return 'DJs';
+        return t;
+      })
+    )
+  );
+
+  const resolvedSourceUrl =
+    item.ticket_url ||
+    item.post_url ||
+    (item.shortcode ? `https://www.instagram.com/p/${item.shortcode}/` : null);
+
+  const handleOpenSourceUrl = async () => {
+    if (!resolvedSourceUrl) return;
+    try {
+      await Linking.openURL(resolvedSourceUrl);
+    } catch {
+      // Handled gracefully if URL cannot be opened
+    }
+  };
 
   const handleRemindPress = () => {
     Animated.sequence([
@@ -240,21 +266,18 @@ export function EventCard({
     const title = item.title || titleDisplay;
     const venue_name = item.venue_name || 'Minneapolis';
     const formatted_date = formatDatePart(item.event_date);
-    const formatted_time = formatTimePart(item.start_time);
-    const description = item.description || item.short_summary || '';
+    const start_time = formatTimePart(item.start_time);
+    const post_url = resolvedSourceUrl || '';
 
-    const shareMessage = `🏈 ${title} @ ${venue_name}
-${formatted_date} • ${formatted_time}
-
-${description}
-
-✨ Tracked via Astra`;
+    const shareMessage = post_url
+      ? `Tracked via Astra ⚡ ${title} @ ${venue_name} (${formatted_date} • ${start_time})\n${post_url}`
+      : `Tracked via Astra ⚡ ${title} @ ${venue_name} (${formatted_date} • ${start_time})`;
 
     try {
       await Share.share({
         title,
         message: shareMessage,
-        url: item.post_url || undefined,
+        url: post_url || undefined,
       });
     } catch {
       // Handled gracefully by toast notification
@@ -533,6 +556,20 @@ ${description}
                     🎧 Featuring: {item.talent_names.join(', ')}
                   </Text>
                 </View>
+              ) : null}
+
+              {/* Sleek Source / Ticket Link Button */}
+              {resolvedSourceUrl ? (
+                <Pressable
+                  onPress={handleOpenSourceUrl}
+                  accessibilityRole="link"
+                  accessibilityLabel="View Source or Tickets"
+                  style={({ pressed }) => [
+                    styles.sourceLinkButton,
+                    pressed && styles.buttonPressed,
+                  ]}>
+                  <Text style={styles.sourceLinkButtonText}>View Source / Tickets ↗</Text>
+                </Pressable>
               ) : null}
             </ScrollView>
 
@@ -992,6 +1029,24 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     lineHeight: 20,
+  },
+  sourceLinkButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: 'rgba(14, 165, 233, 0.16)',
+    borderWidth: 1,
+    borderColor: '#38BDF8',
+    marginTop: 2,
+  },
+  sourceLinkButtonText: {
+    color: '#7DD3FC',
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.4,
   },
   modalActions: {
     flexDirection: 'row',

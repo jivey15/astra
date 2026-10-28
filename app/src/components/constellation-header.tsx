@@ -1,24 +1,48 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ConstellationCanvas } from '@/components/constellation-canvas';
-import { ZodiacConstellation } from '@/constants/constellations';
+import {
+  getAstrologicalConstellation,
+  getMonthAbbreviation,
+  ZodiacConstellation,
+} from '@/constants/constellations';
 
 interface ConstellationHeaderProps {
-  constellation: ZodiacConstellation;
+  constellation?: ZodiacConstellation;
   onCycleMonth?: () => void;
   isCurrentMonth?: boolean;
   eventCount?: number;
+  tonightOnly?: boolean;
+  onToggleTonightOnly?: () => void;
 }
 
 export function ConstellationHeader({
   constellation,
   onCycleMonth,
   isCurrentMonth = true,
-  eventCount,
+  eventCount = 0,
+  tonightOnly = false,
+  onToggleTonightOnly,
 }: ConstellationHeaderProps) {
   const [headerWidth, setHeaderWidth] = useState(380);
   const headerHeight = 108;
+
+  const liveConstellation = useMemo(
+    () => (isCurrentMonth ? getAstrologicalConstellation(new Date()) : constellation) || getAstrologicalConstellation(new Date()),
+    [constellation, isCurrentMonth]
+  );
+
+  const monthAbbr = useMemo(
+    () =>
+      isCurrentMonth
+        ? getMonthAbbreviation(new Date())
+        : liveConstellation.monthName.slice(0, 3).toUpperCase(),
+    [isCurrentMonth, liveConstellation.monthName]
+  );
+
+  const bayerLabel =
+    liveConstellation.bayerStar || `α ${liveConstellation.alphaStar}`;
 
   const handleLayout = (e: LayoutChangeEvent) => {
     const w = e.nativeEvent.layout.width;
@@ -28,6 +52,14 @@ export function ConstellationHeader({
   };
 
   const constellationAreaWidth = Math.max(180, Math.round(headerWidth * 0.56));
+
+  const handlePressTelemetry = () => {
+    if (onToggleTonightOnly) {
+      onToggleTonightOnly();
+    } else if (onCycleMonth) {
+      onCycleMonth();
+    }
+  };
 
   return (
     <View style={styles.headerContainer} onLayout={handleLayout}>
@@ -41,14 +73,14 @@ export function ConstellationHeader({
       {/* Animated Zodiac Constellation Sky Backdrop */}
       <View style={[styles.constellationWrapper, { width: constellationAreaWidth }]}>
         <ConstellationCanvas
-          constellation={constellation}
+          constellation={liveConstellation}
           width={constellationAreaWidth}
           height={headerHeight}
           variant="header"
         />
       </View>
 
-      {/* Foreground Brand & Cyan-Tinted HUD Badge */}
+      {/* Foreground Brand & Interactive Top-Right Telemetry Box */}
       <View style={styles.headerContent}>
         <View style={styles.brandColumn}>
           <View style={styles.logoRow}>
@@ -62,33 +94,44 @@ export function ConstellationHeader({
 
           <Text style={styles.subHeader}>📍 MINNEAPOLIS • LORING SECTOR</Text>
           <Text style={styles.taglineText} numberOfLines={1}>
-            {constellation.tagline}
+            {liveConstellation.tagline}
           </Text>
         </View>
 
-        {/* Cyan-Tinted HUD Zodiac Badge */}
+        {/* Interactive Top-Right Telemetry Box (Dynamic Zodiac + FULL ORBIT / TONIGHT'S ORBIT Toggle) */}
         <Pressable
-          onPress={onCycleMonth}
+          onPress={handlePressTelemetry}
           accessibilityRole="button"
-          accessibilityLabel={`Current zodiac constellation: ${constellation.name} for ${constellation.monthName}`}
+          accessibilityState={{ selected: tonightOnly }}
+          accessibilityLabel={`Telemetry orbit toggle: ${
+            tonightOnly ? "Tonight's Orbit active" : 'Full Orbit active'
+          }. Current sign ${liveConstellation.name}.`}
           style={({ pressed }) => [
             styles.zodiacBadge,
+            tonightOnly && styles.zodiacBadgeTonightActive,
             pressed && styles.zodiacBadgePressed,
           ]}>
           <View style={styles.zodiacTopRow}>
-            <Text style={styles.zodiacSymbol}>{constellation.symbol}</Text>
-            <Text style={styles.zodiacName}>{constellation.name.toUpperCase()}</Text>
-          </View>
-          <Text style={styles.zodiacMeta}>
-            {constellation.monthName.slice(0, 3).toUpperCase()} • α {constellation.alphaStar}
-          </Text>
-          {!isCurrentMonth ? (
-            <Text style={styles.previewHint}>TAP FOR NEXT • PREVIEW</Text>
-          ) : typeof eventCount === 'number' ? (
-            <Text style={styles.previewHint}>
-              {eventCount} SIGNAL{eventCount === 1 ? '' : 'S'} LOCKED
+            <Text style={[styles.zodiacSymbol, tonightOnly && styles.zodiacSymbolTonight]}>
+              {liveConstellation.symbol}
             </Text>
-          ) : null}
+            <Text style={styles.zodiacName}>{liveConstellation.name.toUpperCase()}</Text>
+          </View>
+
+          <Text style={styles.zodiacMeta}>
+            {monthAbbr} • {bayerLabel}
+          </Text>
+
+          <Text style={[styles.signalsLockedText, tonightOnly && styles.signalsLockedTextTonight]}>
+            {eventCount} SIGNAL{eventCount === 1 ? '' : 'S'} LOCKED
+          </Text>
+
+          <View style={[styles.orbitModePill, tonightOnly && styles.orbitModePillActive]}>
+            <View style={[styles.orbitModeDot, tonightOnly && styles.orbitModeDotActive]} />
+            <Text style={[styles.orbitModeText, tonightOnly && styles.orbitModeTextActive]}>
+              {tonightOnly ? "TONIGHT'S ORBIT" : 'FULL ORBIT'}
+            </Text>
+          </View>
         </Pressable>
       </View>
     </View>
@@ -98,7 +141,7 @@ export function ConstellationHeader({
 const styles = StyleSheet.create({
   headerContainer: {
     position: 'relative',
-    minHeight: 108,
+    minHeight: 112,
     backgroundColor: '#050B18',
     borderBottomWidth: 1,
     borderBottomColor: '#1D4ED8',
@@ -148,7 +191,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 12,
     gap: 12,
   },
   brandColumn: {
@@ -209,22 +252,31 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   zodiacBadge: {
-    backgroundColor: 'rgba(14, 30, 56, 0.78)',
-    borderWidth: 1,
-    borderColor: '#38BDF8',
+    backgroundColor: 'rgba(14, 30, 56, 0.82)',
+    borderWidth: 1.25,
+    borderColor: '#1D4ED8',
     borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
     alignItems: 'flex-end',
     justifyContent: 'center',
     shadowColor: '#38BDF8',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.28,
+    shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 4,
   },
+  zodiacBadgeTonightActive: {
+    backgroundColor: 'rgba(14, 165, 233, 0.24)',
+    borderColor: '#00F0FF',
+    borderWidth: 1.75,
+    shadowColor: '#00F0FF',
+    shadowOpacity: 0.65,
+    shadowRadius: 14,
+    elevation: 8,
+  },
   zodiacBadgePressed: {
-    opacity: 0.82,
+    opacity: 0.84,
     transform: [{ scale: 0.98 }],
   },
   zodiacTopRow: {
@@ -236,24 +288,64 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#38BDF8',
   },
+  zodiacSymbolTonight: {
+    color: '#00F0FF',
+  },
   zodiacName: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '800',
     color: '#FFFFFF',
     letterSpacing: 1.1,
   },
   zodiacMeta: {
-    fontSize: 10,
+    fontSize: 9.5,
     color: '#7DD3FC',
     fontWeight: '700',
-    marginTop: 2,
-    letterSpacing: 0.5,
+    marginTop: 1.5,
+    letterSpacing: 0.4,
   },
-  previewHint: {
+  signalsLockedText: {
     fontSize: 8.5,
     color: '#93C5FD',
     marginTop: 2,
     letterSpacing: 0.6,
-    fontWeight: '700',
+    fontWeight: '800',
+  },
+  signalsLockedTextTonight: {
+    color: '#FFFFFF',
+  },
+  orbitModePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: 'rgba(5, 11, 24, 0.75)',
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.45)',
+  },
+  orbitModePillActive: {
+    backgroundColor: '#0EA5E9',
+    borderColor: '#00F0FF',
+  },
+  orbitModeDot: {
+    width: 4.5,
+    height: 4.5,
+    borderRadius: 2.25,
+    backgroundColor: '#7DD3FC',
+  },
+  orbitModeDotActive: {
+    backgroundColor: '#FFFFFF',
+  },
+  orbitModeText: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: '#7DD3FC',
+    letterSpacing: 0.7,
+  },
+  orbitModeTextActive: {
+    color: '#FFFFFF',
   },
 });

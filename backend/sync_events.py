@@ -24,6 +24,7 @@ if _env_path.exists():
 # 1. API & Database Credentials
 APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "")
 ACTOR_ID = "apify~instagram-profile-scraper"
+IG_SESSION_ID = os.environ.get("IG_SESSION_ID", "").strip()
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
 
@@ -71,7 +72,7 @@ class FlyerExtractionSchema(BaseModel):
     )
     vibe_tags: List[str] = Field(
         default_factory=list,
-        description="2-3 vibe tags describing the event (e.g., 'Nightlife', 'Drag/Show', 'Circuit/DJ', 'Bear Night', 'Watch Party')."
+        description="2-3 vibe tags describing the event (e.g., 'Nightlife', 'Drag/Show', 'DJs', 'Leather/Gear', 'Watch Party', 'Community')."
     )
     description: Optional[str] = Field(
         default=None,
@@ -86,6 +87,24 @@ class FlyerExtractionSchema(BaseModel):
     confidence_score: float = Field(
         default=0.95,
         description="Confidence score between 0.0 and 1.0 for the extracted event details."
+    )
+
+
+class WebCalendarEventItem(FlyerExtractionSchema):
+    source_url: Optional[str] = Field(
+        default=None,
+        description="Direct ticket link or event detail URL extracted from the calendar page, if available."
+    )
+    image_url: Optional[str] = Field(
+        default=None,
+        description="Event flyer or promotional image URL extracted from the calendar page, if available."
+    )
+
+
+class WebCalendarExtractionSchema(BaseModel):
+    events: List[WebCalendarEventItem] = Field(
+        default_factory=list,
+        description="List of upcoming dated events extracted from the venue's web calendar HTML/text."
     )
 
 
@@ -695,6 +714,197 @@ def insert_event_to_supabase(row: dict) -> dict:
     return data[0] if isinstance(data, list) and data else data
 
 
+WEB_CALENDAR_FALLBACKS = {
+    "lush.mpls": {
+        "venue_name": "LUSH Lounge & Theater",
+        "urls": ["https://lushmpls.com/events", "https://lushmpls.com"],
+    },
+    "lushmpls": {
+        "venue_name": "LUSH Lounge & Theater",
+        "urls": ["https://lushmpls.com/events", "https://lushmpls.com"],
+    },
+    "blackhartstp": {
+        "venue_name": "Black Hart of Saint Paul",
+        "urls": ["https://www.blackhartstp.com/events", "https://www.blackhartstp.com"],
+    },
+}
+
+
+def clean_html_for_gemini(raw_html: str, max_chars: int = 45000) -> str:
+    """Strips bulky scripts/styles while preserving structured JSON-LD, links, image URLs, and visible text."""
+    if not raw_html:
+        return ""
+    json_ld_blocks = re.findall(
+        r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+        raw_html,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    cleaned = re.sub(r"<(script|style|svg|noscript)[^>]*>.*?</\1>", " ", raw_html, flags=re.DOTALL | re.IGNORECASE)
+    cleaned = re.sub(
+        r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
+        r" \2 [LINK: \1] ",
+        cleaned,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r'<img[^>]+src=["\']([^"\']+)["\'][^>]*>',
+        r" [IMG: \1] ",
+        cleaned,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    ld_prefix = "\n".join(block.strip() for block in json_ld_blocks if block.strip())
+    combined = f"JSON-LD:\n{ld_prefix}\n\nPAGE CONTENT:\n{cleaned}" if ld_prefix else cleaned
+    return combined[:max_chars]
+
+
+def analyze_web_calendar_with_retry(prompt: str, max_retries: int = 4):
+    for attempt in range(1, max_retries + 1):
+        try:
+            return client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=[prompt],
+                config=types.GenerateContentConfig(
+                    system_instruction=GEMINI_SYSTEM_INSTRUCTION,
+                    response_mime_type="application/json",
+                    response_schema=WebCalendarExtractionSchema,
+                    temperature=0.1,
+                ),
+            )
+        except (ServerError, ClientError) as e:
+            status_code = getattr(e, "code", None)
+            if attempt == max_retries or (isinstance(e, ClientError) and status_code != 429):
+                raise e
+            wait_time = attempt * 10 if status_code == 429 else attempt * 5
+            print(f"   [{status_code or 'API Busy'}] Retrying web calendar extraction in {wait_time}s...")
+            time.sleep(wait_time)
+
+
+def scrape_venue_website_fallback(username: str, default_venue_name: str, has_shortcode_col: bool) -> int:
+    """
+    Fallback web-calendar scraper for 21+ age-gated Instagram profiles (LUSH Lounge & Theater
+    and Black Hart of Saint Paul). Fetches their public events webpage, extracts upcoming
+    events via Gemini 3.8 Flash structured output, generates a deterministic shortcode hash
+    for watermarking, and inserts into public.events with is_approved defaulting to false.
+    """
+    key = username.strip().lstrip("@").lower()
+    cfg = WEB_CALENDAR_FALLBACKS.get(key)
+    if not cfg:
+        return 0
+
+    venue_name = cfg["venue_name"] or default_venue_name
+    urls = cfg["urls"]
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+
+    fetched_url = None
+    page_text = ""
+    for candidate_url in urls:
+        try:
+            print(f"   🌐 Age-gate bypass: fetching public web calendar for @{username} ({candidate_url})...")
+            res = requests.get(candidate_url, headers=headers, timeout=15)
+            if res.status_code == 200 and len(res.text) > 400:
+                cleaned = clean_html_for_gemini(res.text)
+                if len(cleaned) > 150:
+                    fetched_url = candidate_url
+                    page_text = cleaned
+                    break
+        except Exception as e:
+            print(f"   ⚠️ Web calendar fetch warning for {candidate_url}: {e}")
+
+    if not page_text or not fetched_url:
+        print(f"   ⚠️ Could not retrieve usable web calendar HTML for @{username}.")
+        return 0
+
+    today_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    prompt = f"""
+Extract up to 8 upcoming nightlife/bar events from the official web calendar for {venue_name} (@{username}).
+- Today's Reference Date (UTC): {today_iso}
+- Source Calendar URL: {fetched_url}
+
+Instructions:
+1. Only extract concrete dated events occurring on or after {today_iso}.
+2. Normalize `event_date` to YYYY-MM-DD format and set `venue_name` to "{venue_name}".
+3. If a direct ticket/event link (`[LINK: ...]`) or flyer image (`[IMG: ...]`) is present, include its full URL in `source_url` / `image_url`.
+4. Write a short, punchy 2-3 sentence nightlife-native `description` with zero promotional fluff.
+
+Web Calendar Content:
+{page_text}
+"""
+    try:
+        ai_res = analyze_web_calendar_with_retry(prompt)
+        clean_json = ai_res.text.strip().removeprefix("```json").removesuffix("```").strip()
+        parsed = json.loads(clean_json)
+        events_list = parsed.get("events", []) if isinstance(parsed, dict) else []
+    except Exception as e:
+        print(f"   ⚠️ Gemini web calendar extraction error for @{username}: {e}")
+        return 0
+
+    if not events_list:
+        print(f"   🌐 Web calendar parsed for @{username}, 0 upcoming events extracted.")
+        return 0
+
+    print(f"   🌐 Extracted {len(events_list)} candidate event(s) from {fetched_url} for {venue_name}.")
+    inserted = 0
+    for ev in events_list:
+        if not isinstance(ev, dict):
+            continue
+        ev_title = (ev.get("event_name") or "").strip()
+        ev_date = (ev.get("event_date") or "").strip()
+        if not ev.get("is_event", True) or not ev_title or not ev_date:
+            continue
+
+        raw_source_url = (ev.get("source_url") or "").strip()
+        if raw_source_url.startswith("/"):
+            base_origin = "/".join(fetched_url.split("/")[:3])
+            raw_source_url = f"{base_origin}{raw_source_url}"
+
+        # Deterministic shortcode hash from venue + title + event_date for watermarking
+        hash_seed = f"{key}:{ev_title.lower()}:{ev_date}"
+        shortcode = f"web_{hashlib.md5(hash_seed.encode('utf-8')).hexdigest()[:10]}"
+        post_url = raw_source_url if raw_source_url.startswith("http") else f"{fetched_url}#event-{shortcode}"
+
+        if post_exists_in_supabase(shortcode, post_url, has_shortcode_col):
+            print(f"     ⏭️ Web event '{ev_title}' ({ev_date}) [shortcode={shortcode}] already exists in Supabase.")
+            continue
+
+        raw_img_url = (ev.get("image_url") or "").strip()
+        if raw_img_url.startswith("/"):
+            base_origin = "/".join(fetched_url.split("/")[:3])
+            raw_img_url = f"{base_origin}{raw_img_url}"
+        permanent_url = upload_flyer_to_supabase(raw_img_url, venue_name) if raw_img_url.startswith("http") else None
+
+        supabase_row = map_extraction_to_supabase_row(
+            ev,
+            venue_name,
+            permanent_url,
+            post_url,
+            shortcode=shortcode,
+            include_shortcode_column=has_shortcode_col,
+        )
+
+        try:
+            insert_event_to_supabase(supabase_row)
+            inserted += 1
+            print(f"     -> Inserted web event: {supabase_row['title']} ({supabase_row['event_date']}) [shortcode={shortcode}]")
+        except requests.exceptions.HTTPError as http_err:
+            resp = http_err.response
+            if is_unique_constraint_violation(resp):
+                print(f"     ⏭️ Duplicate web event skipped ({ev_title} on {ev_date}).")
+                continue
+            print(f"     -> Supabase HTTP error inserting web event for @{username}: {http_err}")
+        except Exception as db_err:
+            print(f"     -> Supabase error inserting web event for @{username}: {db_err}")
+
+    return inserted
+
+
 def main():
     usernames = fetch_active_usernames()
     has_shortcode_col = check_shortcode_column_exists()
@@ -712,6 +922,16 @@ def main():
             "useApifyProxy": True
         },
     }
+    if IG_SESSION_ID:
+        print("   🔑 IG_SESSION_ID detected in environment; passing authenticated session cookie to Apify...")
+        payload["loginCookies"] = [
+            {
+                "name": "sessionid",
+                "value": IG_SESSION_ID,
+                "domain": ".instagram.com",
+                "path": "/",
+            }
+        ]
 
     response = requests.post(run_url, json=payload)
     res_json = response.json()
@@ -762,6 +982,9 @@ def main():
                 )
             else:
                 print(f"-> @{username}: 0 posts found (Private: {is_private} | Error: {err_msg})")
+
+            if username.strip().lstrip("@").lower() in WEB_CALENDAR_FALLBACKS:
+                inserted_count += scrape_venue_website_fallback(username, venue_name, has_shortcode_col)
             continue
 
         print(f"-> @{username}: {len(posts)} posts found")

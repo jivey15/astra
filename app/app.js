@@ -16,16 +16,30 @@ import { BookmarkIcon } from '@/components/astra-icons';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import { ConstellationHeader } from '@/components/constellation-header';
 import { ConstellationLoader } from '@/components/constellation-loader';
-import { EventCard } from '@/components/event-card';
+import { EventCard, formatTimePart } from '@/components/event-card';
 import { MapViewPlaceholder } from '@/components/map-view-placeholder';
 import { getConstellationForMonth } from '@/constants/constellations';
+import {
+  cancelEventReminderNotification,
+  loadPersistedBookmarks,
+  savePersistedBookmarks,
+  scheduleEventReminderNotification,
+} from '@/utils/bookmarks-and-notifications';
 
 // Connect to your live project-loring database
 const SUPABASE_URL = 'https://pvdzgmglfcmdysyorjhf.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_-zw9isL2SkCT7r9O0fUwYA_SfmPynKp';
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const VIBE_FILTERS = ['All', 'Watch Party', 'Drag/Show', 'Circuit/DJ', 'Nightlife'];
+// Curated Astra v1.0 Category Pillars ('Circuit/DJ' renamed to 'DJs')
+export const CATEGORY_PILLARS = [
+  'All Signals',
+  'DJs',
+  'Drag/Show',
+  'Watch Party',
+  'Leather/Gear',
+  'Community',
+];
 
 const FlatListCellPassthrough = ({ children }) => <>{children}</>;
 
@@ -45,6 +59,12 @@ export function getTodayIsoDate(now = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+export function getIsoDatePlusDays(days, baseDate = new Date()) {
+  const dt = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate());
+  dt.setDate(dt.getDate() + days);
+  return getTodayIsoDate(dt);
+}
+
 export function isEventExpired(dateString) {
   if (!dateString) return false;
   const trimmed = String(dateString).trim();
@@ -59,12 +79,52 @@ export function isEventExpired(dateString) {
   return eventDate < todayStart;
 }
 
+export function eventMatchesCategory(event, category) {
+  if (!category || category === 'All' || category === 'All Signals') {
+    return true;
+  }
+
+  const rawTags = (event.vibe_tags || []).map((t) => String(t).trim().toLowerCase());
+  const textBlob = `${event.title || ''} ${event.short_summary || ''} ${event.description || ''}`.toLowerCase();
+
+  switch (category) {
+    case 'DJs':
+      return (
+        rawTags.some((t) =>
+          ['djs', 'circuit/dj', 'dj', 'dance', 'circuit', 'club', 'house', 'techno', 'nightlife'].includes(t)
+        ) || /\b(dj|djs|dance|circuit|beats|house music)\b/i.test(textBlob)
+      );
+    case 'Drag/Show':
+      return (
+        rawTags.some((t) => ['drag/show', 'drag', 'show', 'cabaret', 'burlesque', 'pageant'].includes(t)) ||
+        /\b(drag|show|cabaret|revue|performances|queens)\b/i.test(textBlob)
+      );
+    case 'Watch Party':
+      return (
+        rawTags.some((t) => ['watch party', 'viewing party', 'sports', 'football'].includes(t)) ||
+        /\b(watch party|viewing party|vikings|vikes|football|game day|race)\b/i.test(textBlob)
+      );
+    case 'Leather/Gear':
+      return (
+        rawTags.some((t) =>
+          ['leather/gear', 'leather', 'gear', 'bear', 'bear night', 'fetish', 'pup', 'kink'].includes(t)
+        ) || /\b(leather|gear|bear|den|harness|pup|bootblack|underwear)\b/i.test(textBlob)
+      );
+    case 'Community':
+      return (
+        rawTags.some((t) =>
+          ['community', 'social', 'trivia', 'bingo', 'karaoke', 'mixer', 'fundraiser', 'sports'].includes(t)
+        ) || /\b(community|trivia|bingo|karaoke|fundraiser|benefit|league|stonewall|mixer)\b/i.test(textBlob)
+      );
+    default:
+      return rawTags.includes(category.toLowerCase());
+  }
+}
+
 export default function App() {
   const { width: screenWidth } = useWindowDimensions();
 
-  // ~46% screen width for horizontal snapping carousel so two cards sit side-by-side
   const carouselCardWidth = Math.max(152, Math.round(screenWidth * 0.46));
-  // 2-column vertical grid card width
   const gridCardWidth = Math.max(148, Math.floor((screenWidth - 28 - 10) / 2));
 
   const currentSystemMonth = useMemo(() => new Date().getMonth(), []);
@@ -74,16 +134,49 @@ export default function App() {
   const [allKnownEvents, setAllKnownEvents] = useState({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedTag, setSelectedTag] = useState('All');
+  const [selectedTag, setSelectedTag] = useState('All Signals');
 
-  // Local state for 'Remind me' bookmarks
+  // Interactive Top-Right Telemetry Toggle ('FULL ORBIT' vs 'TONIGHT'S ORBIT')
+  const [tonightOnly, setTonightOnly] = useState(false);
+
+  // Persisted 'Remind me' bookmarks
   const [remindedIds, setRemindedIds] = useState([]);
+  const [bookmarksHydrated, setBookmarksHydrated] = useState(false);
 
   // Secondary Navigation Bar state ('feed' | 'map' | 'bookmarks')
   const [activeTab, setActiveTab] = useState('feed');
 
   // Cosmic feedback toast banner
   const [toastMessage, setToastMessage] = useState(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    loadPersistedBookmarks().then(({ remindedIds: savedIds, cachedEvents }) => {
+      if (!isMounted) return;
+      if (savedIds.length > 0) {
+        setRemindedIds(savedIds);
+      }
+      if (Object.keys(cachedEvents).length > 0) {
+        setAllKnownEvents((prev) => ({ ...cachedEvents, ...prev }));
+      }
+      setBookmarksHydrated(true);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!bookmarksHydrated) return;
+    const bookmarkedCache = {};
+    for (const id of remindedIds) {
+      const ev = allKnownEvents[String(id)];
+      if (ev) {
+        bookmarkedCache[String(id)] = ev;
+      }
+    }
+    savePersistedBookmarks(remindedIds, bookmarkedCache);
+  }, [allKnownEvents, bookmarksHydrated, remindedIds]);
 
   const showToast = useCallback((msg) => {
     setToastMessage(msg);
@@ -93,11 +186,11 @@ export default function App() {
     if (!toastMessage) return;
     const timer = setTimeout(() => {
       setToastMessage(null);
-    }, 2600);
+    }, 2800);
     return () => clearTimeout(timer);
   }, [toastMessage]);
 
-  const fetchEvents = useCallback(async (tag, isPullRefresh = false) => {
+  const fetchEvents = useCallback(async (isPullRefresh = false) => {
     if (isPullRefresh) {
       setRefreshing(true);
     } else {
@@ -109,18 +202,12 @@ export default function App() {
       fourteenDaysAgoDate.setDate(fourteenDaysAgoDate.getDate() - 14);
       const fourteenDaysAgo = fourteenDaysAgoDate.toISOString().split('T')[0];
 
-      let query = supabase
+      const { data, error } = await supabase
         .from('events')
         .select('*')
         .eq('is_approved', true)
         .gte('event_date', fourteenDaysAgo)
         .order('event_date', { ascending: true });
-
-      if (tag !== 'All') {
-        query = query.contains('vibe_tags', [tag]);
-      }
-
-      const { data, error } = await query;
 
       if (error) throw error;
       const fetched = (data || []).filter((item) => item.is_approved === true);
@@ -142,23 +229,42 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    fetchEvents(selectedTag);
-  }, [fetchEvents, selectedTag]);
+    fetchEvents(false);
+  }, [fetchEvents]);
 
   const handleToggleRemind = useCallback(
     (eventId) => {
+      const targetEvent =
+        allKnownEvents[String(eventId)] || events.find((e) => e.id === eventId);
+
       setRemindedIds((prev) => {
         const exists = prev.includes(eventId);
         if (exists) {
-          showToast('Removed from Saved Bookmarks');
+          cancelEventReminderNotification(eventId);
+          showToast('Removed from Saved Bookmarks • Alert Canceled');
           return prev.filter((id) => id !== eventId);
         } else {
-          showToast('✦ Saved to Remind Me Bookmarks');
+          if (targetEvent) {
+            scheduleEventReminderNotification(targetEvent).then(({ scheduled, triggerDate }) => {
+              if (scheduled && triggerDate) {
+                const timeLabel = formatTimePart(
+                  `${String(triggerDate.getHours()).padStart(2, '0')}:${String(
+                    triggerDate.getMinutes()
+                  ).padStart(2, '0')}`
+                );
+                showToast(`✦ Saved to Bookmarks • 4h Push Alert set (${timeLabel})`);
+              } else {
+                showToast('✦ Saved to Bookmarks (4h Reminder Armed)');
+              }
+            });
+          } else {
+            showToast('✦ Saved to Remind Me Bookmarks');
+          }
           return [...prev, eventId];
         }
       });
     },
-    [showToast]
+    [allKnownEvents, events, showToast]
   );
 
   const handleSendToOrbit = useCallback(
@@ -172,16 +278,59 @@ export default function App() {
     setConstellationMonth((prev) => (prev + 1) % 12);
   }, []);
 
+  const handleToggleTonightOnly = useCallback(() => {
+    setTonightOnly((prev) => {
+      const next = !prev;
+      showToast(
+        next
+          ? "⚡ TONIGHT'S ORBIT ACTIVE • Showing tonight's signals only"
+          : '✦ FULL ORBIT ACTIVE • Showing all upcoming signals'
+      );
+      return next;
+    });
+  }, [showToast]);
+
   const activeConstellation = useMemo(
     () => getConstellationForMonth(constellationMonth),
     [constellationMonth]
   );
 
-  // Split fetched events into upcomingEvents (event_date >= today) and pastEvents (event_date < today)
-  const { upcomingEvents, pastEvents } = useMemo(() => {
+  // Smart 7-Day Category Sorting & Dimming (`today` through `today + 7 days`)
+  const sortedFilterPills = useMemo(() => {
     const today = getTodayIsoDate();
-    const upcoming = [];
-    const past = [];
+    const sevenDaysAhead = getIsoDatePlusDays(7);
+
+    const eventsThisWeek = events.filter((ev) => {
+      const dateStr = (ev.event_date || '').trim().slice(0, 10);
+      return dateStr >= today && dateStr <= sevenDaysAhead;
+    });
+
+    const otherPillars = CATEGORY_PILLARS.slice(1);
+    const activePillars = [];
+    const inactivePillars = [];
+
+    for (const pillar of otherPillars) {
+      const count7d = eventsThisWeek.filter((ev) => eventMatchesCategory(ev, pillar)).length;
+      if (count7d > 0) {
+        activePillars.push({ label: pillar, hasWeeklyEvents: true, count7d });
+      } else {
+        inactivePillars.push({ label: pillar, hasWeeklyEvents: false, count7d: 0 });
+      }
+    }
+
+    return [
+      { label: 'All Signals', hasWeeklyEvents: true, count7d: eventsThisWeek.length },
+      ...activePillars,
+      ...inactivePillars,
+    ];
+  }, [events]);
+
+  // Split fetched events into upcomingEvents (event_date >= today) and pastEvents (event_date < today)
+  const { allUpcomingEvents, upcomingEvents, pastEvents } = useMemo(() => {
+    const today = getTodayIsoDate();
+    const allUpcoming = [];
+    const filteredUpcoming = [];
+    const filteredPast = [];
 
     events.forEach((event) => {
       const eventDateStr = (event.event_date || '').trim().slice(0, 10);
@@ -189,35 +338,57 @@ export default function App() {
         ? eventDateStr < today
         : isEventExpired(event.event_date);
 
+      if (!isPast) {
+        allUpcoming.push({ ...event, isPast: false });
+      }
+
+      if (!eventMatchesCategory(event, selectedTag)) {
+        return;
+      }
+
+      if (tonightOnly) {
+        if (eventDateStr === today) {
+          filteredUpcoming.push({ ...event, isPast: false });
+        }
+        return;
+      }
+
       if (isPast) {
-        past.push({ ...event, isPast: true });
+        filteredPast.push({ ...event, isPast: true });
       } else {
-        upcoming.push({ ...event, isPast: false });
+        filteredUpcoming.push({ ...event, isPast: false });
       }
     });
 
-    upcoming.sort((a, b) => {
+    const sortAsc = (a, b) => {
       const timeA = parseEventDate(a.event_date)?.getTime() ?? 0;
       const timeB = parseEventDate(b.event_date)?.getTime() ?? 0;
       return timeA - timeB;
-    });
+    };
 
-    past.sort((a, b) => {
+    const sortDesc = (a, b) => {
       const timeA = parseEventDate(a.event_date)?.getTime() ?? 0;
       const timeB = parseEventDate(b.event_date)?.getTime() ?? 0;
       return timeB - timeA;
-    });
+    };
 
-    return { upcomingEvents: upcoming, pastEvents: past };
-  }, [events]);
+    allUpcoming.sort(sortAsc);
+    filteredUpcoming.sort(sortAsc);
+    filteredPast.sort(sortDesc);
 
-  // Top Section: 'Tonight's Alignment / Featured Orbit' (next 4 to 6 upcoming featured events)
+    return {
+      allUpcomingEvents: allUpcoming,
+      upcomingEvents: filteredUpcoming,
+      pastEvents: filteredPast,
+    };
+  }, [events, selectedTag, tonightOnly]);
+
   const featuredEvents = useMemo(() => upcomingEvents.slice(0, 6), [upcomingEvents]);
 
   const bookmarkedEvents = useMemo(() => {
     return remindedIds
       .map((id) => allKnownEvents[String(id)] || events.find((e) => e.id === id))
-      .filter((item) => Boolean(item) && item.is_approved === true)
+      .filter((item) => Boolean(item))
       .map((item) => ({ ...item, isPast: isEventExpired(item.event_date) }));
   }, [allKnownEvents, events, remindedIds]);
 
@@ -225,28 +396,27 @@ export default function App() {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
 
-      {/* Deep Cosmic Navy Background Gradient Layers (#050B18 -> #0A1528) */}
       <View style={styles.bgGradientTop} pointerEvents="none" />
       <View style={styles.bgGradientBottom} pointerEvents="none" />
 
-      {/* Dynamic Zodiac Constellation Header */}
       <ConstellationHeader
         constellation={activeConstellation}
         onCycleMonth={handleCycleMonth}
         isCurrentMonth={constellationMonth === currentSystemMonth}
         eventCount={upcomingEvents.length}
+        tonightOnly={tonightOnly}
+        onToggleTonightOnly={handleToggleTonightOnly}
       />
 
-      {constellationMonth !== currentSystemMonth ? (
-        <View style={styles.monthPreviewBar}>
-          <Text style={styles.monthPreviewText}>
-            Previewing {activeConstellation.monthName} ({activeConstellation.symbol}{' '}
-            {activeConstellation.name})
+      {tonightOnly ? (
+        <View style={styles.tonightActiveBar}>
+          <Text style={styles.tonightActiveText}>
+            ⚡ TONIGHT&apos;S ORBIT FILTER ACTIVE ({getTodayIsoDate()})
           </Text>
           <Pressable
-            onPress={() => setConstellationMonth(currentSystemMonth)}
+            onPress={() => setTonightOnly(false)}
             style={styles.monthResetBtn}>
-            <Text style={styles.monthResetText}>Return to Current Month</Text>
+            <Text style={styles.monthResetText}>Return to Full Orbit</Text>
           </Pressable>
         </View>
       ) : null}
@@ -259,26 +429,30 @@ export default function App() {
 
       {activeTab === 'feed' ? (
         <View style={styles.mainContent}>
-          {/* Interactive Electric Cyan Vibe Filter Chips */}
           <View style={styles.filterBarContainer}>
             <FlatList
-              data={VIBE_FILTERS}
+              data={sortedFilterPills}
               horizontal
               showsHorizontalScrollIndicator={false}
-              keyExtractor={(item) => item}
+              keyExtractor={(item) => item.label}
               contentContainerStyle={styles.filterList}
-              renderItem={({ item: tag }) => {
-                const isSelected = selectedTag === tag;
+              renderItem={({ item: pill }) => {
+                const isSelected = selectedTag === pill.label;
+                const isDimmed = !pill.hasWeeklyEvents && !isSelected;
                 return (
                   <Pressable
-                    onPress={() => setSelectedTag(tag)}
-                    style={[styles.filterChip, isSelected && styles.filterChipActive]}>
+                    onPress={() => setSelectedTag(pill.label)}
+                    style={[
+                      styles.filterChip,
+                      isSelected && styles.filterChipActive,
+                      isDimmed && styles.filterChipDimmed,
+                    ]}>
                     <Text
                       style={[
                         styles.filterChipText,
                         isSelected && styles.filterChipTextActive,
                       ]}>
-                      {tag === 'All' ? '✦ All Signals' : tag}
+                      {pill.label === 'All Signals' ? '+ All Signals' : pill.label}
                     </Text>
                   </Pressable>
                 );
@@ -306,14 +480,13 @@ export default function App() {
               refreshControl={
                 <RefreshControl
                   refreshing={refreshing}
-                  onRefresh={() => fetchEvents(selectedTag, true)}
+                  onRefresh={() => fetchEvents(true)}
                   tintColor="#38BDF8"
                 />
               }
               ListHeaderComponent={
                 featuredEvents.length > 0 ? (
                   <View style={styles.featuredSection}>
-                    {/* TOP SECTION: 'Tonight's Alignment / Featured Orbit' */}
                     <View style={styles.sectionHeaderRow}>
                       <View>
                         <Text style={styles.sectionEyebrow}>✦ FEATURED ORBIT</Text>
@@ -351,7 +524,6 @@ export default function App() {
                       )}
                     />
 
-                    {/* BOTTOM SECTION HEADER: 'Upcoming Signals' (2-Column Vertical Grid) */}
                     <View style={[styles.sectionHeaderRow, styles.upcomingSectionHeader]}>
                       <View>
                         <Text style={styles.sectionEyebrow}>📡 MINNEAPOLIS TELEMETRY</Text>
@@ -371,10 +543,14 @@ export default function App() {
                   <View style={styles.emptyState}>
                     <Text style={styles.emptyStar}>✦</Text>
                     <Text style={styles.emptyTitle}>
-                      No signals detected for &ldquo;{selectedTag}&rdquo;
+                      {tonightOnly
+                        ? 'No signals scheduled for Tonight'
+                        : `No signals detected for “${selectedTag}”`}
                     </Text>
                     <Text style={styles.emptySubtitle}>
-                      Try switching to another vibe frequency or check back as new Minneapolis flyers are synced.
+                      {tonightOnly
+                        ? 'Tap the top-right telemetry box or the button below to return to Full Orbit.'
+                        : 'Try switching to another active vibe pillar or check back as new Minneapolis flyers are synced.'}
                     </Text>
                   </View>
                 ) : undefined
@@ -424,9 +600,10 @@ export default function App() {
       ) : activeTab === 'map' ? (
         <View style={styles.mainContent}>
           <MapViewPlaceholder
-            events={upcomingEvents}
+            events={allUpcomingEvents}
             remindedIds={remindedIds}
             onToggleRemind={handleToggleRemind}
+            onSendToOrbit={handleSendToOrbit}
             onJumpToFeed={() => setActiveTab('feed')}
           />
         </View>
@@ -439,10 +616,10 @@ export default function App() {
             </View>
             <Text style={styles.bookmarksSubtitle}>
               {bookmarkedEvents.length === 0
-                ? 'Tap "Remind" on any event card to lock it into your personal orbit.'
-                : `${bookmarkedEvents.length} upcoming Minneapolis event${
+                ? 'Tap "Remind" on any event card to lock it into your personal orbit and arm a 4-hour prior push alert.'
+                : `${bookmarkedEvents.length} Minneapolis event${
                     bookmarkedEvents.length === 1 ? '' : 's'
-                  } locked in your personal constellation.`}
+                  } locked in your personal constellation (4-hour prior reminder armed).`}
             </Text>
           </View>
 
@@ -463,7 +640,7 @@ export default function App() {
                 </View>
                 <Text style={styles.emptyTitle}>Your orbit is currently empty</Text>
                 <Text style={styles.emptySubtitle}>
-                  Bookmark events with the &ldquo;Remind&rdquo; button in the Live Feed to build your nightlife lineup.
+                  Bookmark events with the &ldquo;Remind&rdquo; button in the Live Feed to build your nightlife lineup and receive a push alert 4 hours before showtime.
                 </Text>
                 <Pressable
                   onPress={() => setActiveTab('feed')}
@@ -473,7 +650,7 @@ export default function App() {
               </View>
             }
             renderItem={({ item }) => (
-              <View style={styles.gridItemWrapper}>
+              <View style={[styles.gridItemWrapper, item.isPast && styles.pastCardWrapper]}>
                 <EventCard
                   item={item}
                   variant="grid"
@@ -488,7 +665,6 @@ export default function App() {
         </View>
       )}
 
-      {/* Secondary Navigation Bar */}
       <BottomTabBar
         activeTab={activeTab}
         onSelectTab={setActiveTab}
@@ -522,20 +698,21 @@ const styles = StyleSheet.create({
   mainContent: {
     flex: 1,
   },
-  monthPreviewBar: {
+  tonightActiveBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 7,
-    backgroundColor: 'rgba(14, 30, 56, 0.9)',
+    backgroundColor: 'rgba(14, 30, 56, 0.94)',
     borderBottomWidth: 1,
-    borderBottomColor: '#38BDF8',
+    borderBottomColor: '#00F0FF',
   },
-  monthPreviewText: {
-    color: '#93C5FD',
-    fontSize: 11.5,
-    fontWeight: '700',
+  tonightActiveText: {
+    color: '#00F0FF',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.6,
   },
   monthResetBtn: {
     paddingHorizontal: 10,
@@ -600,6 +777,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.35,
     shadowRadius: 8,
     elevation: 4,
+  },
+  filterChipDimmed: {
+    opacity: 0.38,
   },
   filterChipText: {
     color: '#93C5FD',

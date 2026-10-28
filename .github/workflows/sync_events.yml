@@ -27,6 +27,7 @@ jobs:
       - name: Run event sync pipeline
         env:
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          IG_SESSION_ID: ${{ secrets.IG_SESSION_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
