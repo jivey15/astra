@@ -445,7 +445,8 @@ export function EventCard({
             accessibilityLabel={`Open details for ${titleDisplay}`}
             style={styles.hudKebabButton}>
             <Text style={styles.hudKebabText}>⋮</Text>
-          </Pressable>        </View>
+          </Pressable>
+        </View>
 
         {/* EDGE-TO-EDGE FLYER HERO WITH CLEAN HUD OVERLAY */}
         <Pressable
