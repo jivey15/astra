@@ -1,5 +1,14 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import Svg, {
+  Circle,
+  Defs,
+  Line,
+  LinearGradient as SvgLinearGradient,
+  RadialGradient,
+  Rect,
+  Stop,
+} from 'react-native-svg';
 
 import { ZodiacConstellation } from '@/constants/constellations';
 
@@ -299,3 +308,194 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 });
+
+/* ------------------------------------------------------------------ */
+/* Full-screen fixed Cosmic Nebula backdrop with edge constellations   */
+/* ------------------------------------------------------------------ */
+
+interface BackdropCluster {
+  /** Which outer edge of the viewport the cluster hugs. */
+  side: 'left' | 'right';
+  /** Vertical anchor as a fraction of viewport height. */
+  y: number;
+  /** Star offsets in px relative to the edge anchor (right-side offsets are negative). */
+  points: [number, number][];
+  edges: [number, number][];
+}
+
+const BACKDROP_CLUSTERS: BackdropCluster[] = [
+  {
+    side: 'left',
+    y: 0.31,
+    points: [
+      [4, 0],
+      [30, -26],
+      [58, -12],
+      [50, 24],
+      [18, 36],
+    ],
+    edges: [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+      [3, 4],
+      [4, 0],
+    ],
+  },
+  {
+    side: 'right',
+    y: 0.22,
+    points: [
+      [-6, 0],
+      [-34, 16],
+      [-62, 4],
+      [-74, 38],
+      [-38, 50],
+    ],
+    edges: [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+      [1, 4],
+    ],
+  },
+  {
+    side: 'left',
+    y: 0.74,
+    points: [
+      [6, 0],
+      [44, -10],
+      [86, -22],
+      [112, -2],
+      [102, 30],
+      [64, 24],
+      [46, -10],
+    ],
+    edges: [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+      [3, 4],
+      [4, 5],
+      [5, 6],
+      [6, 1],
+    ],
+  },
+  {
+    side: 'right',
+    y: 0.58,
+    points: [
+      [-4, 0],
+      [-30, -24],
+      [-54, -8],
+      [-46, 28],
+      [-76, 44],
+    ],
+    edges: [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+      [3, 0],
+      [3, 4],
+    ],
+  },
+];
+
+const BACKDROP_FIELD_STARS: [number, number, number][] = [
+  [0.18, 0.06, 1],
+  [0.44, 0.1, 1.2],
+  [0.7, 0.05, 1],
+  [0.88, 0.14, 1.3],
+  [0.3, 0.22, 1],
+  [0.56, 0.3, 1.1],
+  [0.78, 0.4, 1],
+  [0.22, 0.48, 1.2],
+  [0.5, 0.55, 1],
+  [0.84, 0.68, 1.2],
+  [0.36, 0.7, 1],
+  [0.62, 0.8, 1.3],
+  [0.14, 0.9, 1],
+  [0.74, 0.92, 1.1],
+];
+
+/**
+ * Deep cosmic navy (#050A14) base + radial/linear nebula glows + glowing cyan constellation
+ * clusters on the left/right outer edges. Rendered once behind the scrolling feed with
+ * `pointerEvents="none"` so cards scroll over it and the constellations peek out from behind.
+ */
+export function CosmicBackdrop() {
+  const { width, height } = useWindowDimensions();
+
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
+        <Defs>
+          <RadialGradient id="nebulaPrimary" cx="0.3" cy="0.22" r="0.65">
+            <Stop offset="0" stopColor="rgb(0,160,255)" stopOpacity={0.14} />
+            <Stop offset="1" stopColor="rgb(0,160,255)" stopOpacity={0} />
+          </RadialGradient>
+          <RadialGradient id="nebulaSecondary" cx="0.85" cy="0.78" r="0.6">
+            <Stop offset="0" stopColor="rgb(56,189,248)" stopOpacity={0.08} />
+            <Stop offset="1" stopColor="rgb(56,189,248)" stopOpacity={0} />
+          </RadialGradient>
+          <SvgLinearGradient id="nebulaLinear" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor="rgb(5,10,20)" stopOpacity={0} />
+            <Stop offset="1" stopColor="rgb(2,132,199)" stopOpacity={0.1} />
+          </SvgLinearGradient>
+          <RadialGradient id="starHalo" cx="0.5" cy="0.5" r="0.5">
+            <Stop offset="0" stopColor="rgb(0,240,255)" stopOpacity={0.55} />
+            <Stop offset="1" stopColor="rgb(0,240,255)" stopOpacity={0} />
+          </RadialGradient>
+        </Defs>
+
+        <Rect x="0" y="0" width={width} height={height} fill="#050A14" />
+        <Rect x="0" y="0" width={width} height={height} fill="url(#nebulaPrimary)" />
+        <Rect x="0" y="0" width={width} height={height} fill="url(#nebulaSecondary)" />
+        <Rect x="0" y="0" width={width} height={height} fill="url(#nebulaLinear)" />
+
+        {BACKDROP_FIELD_STARS.map(([fx, fy, r], idx) => (
+          <Circle
+            key={`field-${idx}`}
+            cx={fx * width}
+            cy={fy * height}
+            r={r}
+            fill={idx % 2 === 0 ? '#7DD3FC' : '#FFFFFF'}
+            opacity={0.45}
+          />
+        ))}
+
+        {BACKDROP_CLUSTERS.map((cluster, cIdx) => {
+          const anchorX = cluster.side === 'left' ? 0 : width;
+          const anchorY = cluster.y * height;
+          const pts = cluster.points.map(([dx, dy]) => ({
+            x: anchorX + dx,
+            y: anchorY + dy,
+          }));
+
+          return (
+            <React.Fragment key={`cluster-${cIdx}`}>
+              {cluster.edges.map(([a, b], eIdx) => (
+                <Line
+                  key={`edge-${cIdx}-${eIdx}`}
+                  x1={pts[a].x}
+                  y1={pts[a].y}
+                  x2={pts[b].x}
+                  y2={pts[b].y}
+                  stroke="rgba(0, 240, 255, 0.35)"
+                  strokeWidth={0.8}
+                />
+              ))}
+              {pts.map((p, sIdx) => (
+                <React.Fragment key={`star-${cIdx}-${sIdx}`}>
+                  <Circle cx={p.x} cy={p.y} r={8} fill="url(#starHalo)" />
+                  <Circle cx={p.x} cy={p.y} r={3} fill="#00F0FF" />
+                  <Circle cx={p.x} cy={p.y} r={1.2} fill="#FFFFFF" />
+                </React.Fragment>
+              ))}
+            </React.Fragment>
+          );
+        })}
+      </Svg>
+    </View>
+  );
+}

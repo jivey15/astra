@@ -14,11 +14,13 @@ import {
 
 import { BookmarkIcon } from '@/components/astra-icons';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
+import { CosmicAlignmentBanner } from '@/components/cosmic-alignment-banner';
+import { CosmicBackdrop } from '@/components/constellation-canvas';
 import { ConstellationHeader } from '@/components/constellation-header';
 import { ConstellationLoader } from '@/components/constellation-loader';
 import { EventCard, formatTimePart } from '@/components/event-card';
 import { MapViewPlaceholder } from '@/components/map-view-placeholder';
-import { getConstellationForMonth } from '@/constants/constellations';
+import { getAstrologicalConstellation, getConstellationForMonth } from '@/constants/constellations';
 import {
   cancelEventReminderNotification,
   loadPersistedBookmarks,
@@ -385,6 +387,9 @@ export default function App() {
 
   const featuredEvents = useMemo(() => upcomingEvents.slice(0, 6), [upcomingEvents]);
 
+  // Live astrological sign (zodiac glyph + Bayer star) for the Cosmic Alignment HUD banner
+  const liveSign = useMemo(() => getAstrologicalConstellation(new Date()), []);
+
   const bookmarkedEvents = useMemo(() => {
     return remindedIds
       .map((id) => allKnownEvents[String(id)] || events.find((e) => e.id === id))
@@ -396,8 +401,7 @@ export default function App() {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
 
-      <View style={styles.bgGradientTop} pointerEvents="none" />
-      <View style={styles.bgGradientBottom} pointerEvents="none" />
+      <CosmicBackdrop />
 
       <ConstellationHeader
         constellation={activeConstellation}
@@ -487,17 +491,14 @@ export default function App() {
               ListHeaderComponent={
                 featuredEvents.length > 0 ? (
                   <View style={styles.featuredSection}>
-                    <View style={styles.sectionHeaderRow}>
-                      <View>
-                        <Text style={styles.sectionEyebrow}>✦ FEATURED ORBIT</Text>
-                        <Text style={styles.sectionTitle}>Tonight&apos;s Alignment</Text>
-                      </View>
-                      <View style={styles.sectionCountBadge}>
-                        <Text style={styles.sectionCountText}>
-                          {featuredEvents.length} FEATURED
-                        </Text>
-                      </View>
-                    </View>
+                    <CosmicAlignmentBanner
+                      symbol={liveSign.symbol}
+                      subtitle={`${featuredEvents.length} FEATURED SIGNAL${
+                        featuredEvents.length === 1 ? '' : 'S'
+                      } • ${tonightOnly ? "TONIGHT'S ORBIT" : 'FULL ORBIT'} • ${(
+                        liveSign.bayerStar || ''
+                      ).toUpperCase()}`}
+                    />
 
                     <FlatList
                       data={featuredEvents}
@@ -751,9 +752,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   filterBarContainer: {
-    backgroundColor: '#050B18',
+    backgroundColor: 'rgba(5, 10, 20, 0.45)',
     borderBottomWidth: 1,
-    borderBottomColor: '#1D4ED8',
+    borderBottomColor: 'rgba(0, 240, 255, 0.2)',
     paddingVertical: 11,
   },
   filterList: {
@@ -764,17 +765,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     paddingVertical: 8,
     borderRadius: 999,
-    backgroundColor: 'rgba(14, 30, 56, 0.78)',
+    backgroundColor: 'rgba(8, 18, 38, 0.78)',
     borderWidth: 1,
-    borderColor: '#1D4ED8',
+    borderColor: 'rgba(0, 240, 255, 0.3)',
     marginRight: 8,
   },
   filterChipActive: {
-    backgroundColor: '#0EA5E9',
-    borderColor: '#38BDF8',
-    shadowColor: '#38BDF8',
+    backgroundColor: 'rgba(0, 160, 255, 0.16)',
+    borderColor: '#00F0FF',
+    shadowColor: '#00F0FF',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.55,
     shadowRadius: 8,
     elevation: 4,
   },

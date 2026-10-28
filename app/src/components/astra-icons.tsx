@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
+import Svg, { Circle, Path, Polygon } from 'react-native-svg';
 
 interface IconProps {
   size?: number;
@@ -190,3 +191,57 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 });
+
+/**
+ * Glowing compass / radar line-art icon for the 'Live Feed' dock tab.
+ */
+export function CompassIcon({ size = 24, color = '#00F0FF', active = false }: IconProps) {
+  return (
+    <View
+      style={[
+        styles.iconBox,
+        { width: size, height: size },
+        active ? ({ filter: `drop-shadow(0px 0px 4px ${color})` } as any) : null,
+      ]}>
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Circle cx="12" cy="12" r="9" stroke={color} strokeWidth={1.6} opacity={active ? 1 : 0.8} />
+        <Circle cx="12" cy="12" r="11.2" stroke={color} strokeWidth={0.6} opacity={0.35} />
+        <Polygon
+          points="16,8 13.4,13.4 8,16 10.6,10.6"
+          stroke={color}
+          strokeWidth={1.4}
+          strokeLinejoin="round"
+          fill={color}
+          fillOpacity={active ? 0.35 : 0.12}
+        />
+        <Circle cx="12" cy="12" r="1.3" fill={color} />
+      </Svg>
+    </View>
+  );
+}
+
+/**
+ * Glowing bookmark / ribbon line-art icon for the 'Saved Bookmarks' dock tab.
+ */
+export function RibbonIcon({ size = 24, color = '#00F0FF', active = false }: IconProps) {
+  return (
+    <View
+      style={[
+        styles.iconBox,
+        { width: size, height: size },
+        active ? ({ filter: `drop-shadow(0px 0px 4px ${color})` } as any) : null,
+      ]}>
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path
+          d="M7 3.5h10a1.2 1.2 0 0 1 1.2 1.2V20.5L12 16.2 5.8 20.5V4.7A1.2 1.2 0 0 1 7 3.5z"
+          stroke={color}
+          strokeWidth={1.6}
+          strokeLinejoin="round"
+          fill={color}
+          fillOpacity={active ? 0.25 : 0.08}
+          opacity={active ? 1 : 0.85}
+        />
+      </Svg>
+    </View>
+  );
+}
